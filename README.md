@@ -1,76 +1,78 @@
 # SignalDigest
 
-> 一句话：开源的 **App 评论信号周报系统**。用户输入自己的 App Store / Google Play 链接与 1-3 个竞品链接，系统定期采集评论，识别投诉、好评、评分变化、发版影响与竞品动向，每周生成一份 `What changed?` 周报，告诉用户下一步该优先修什么、关注什么。
+> **English** | [简体中文](README.zh-CN.md)
 
-首期产品线：**SignalDigest for App Reviews**。主交付物是一封高质量周报，而不是复杂 dashboard。
+> One-liner: an open-source **App review signal weekly digest** system. Add your App Store / Google Play links plus 1–3 competitor apps; the system ingests reviews on a schedule, detects complaints, praise, rating shifts, release impact, and competitor moves, then delivers a **What changed?** weekly report with prioritized next actions.
 
-完整设计见 [`doc/signaldigest-open-source-design-20260612.md`](doc/signaldigest-open-source-design-20260612.md)。
+First product line: **SignalDigest for App Reviews**. The primary deliverable is a high-quality weekly email—not a complex dashboard.
 
----
-
-## 1. 当前状态
-
-项目处于 **Phase 1（App Store MVP）脚手架** 阶段：
-
-- 后端架构已初始化，可启动、可建表、可手动采集 App Store RSS 评论、可调 API 生成周报草稿。
-- 部分能力为带接口的桩（Google Play 采集、App Store Connect、Apify、邮件实际投递、Notion 导出、LLM 分类），便于按路线图逐步补齐。
-- 前端（Next.js）为 Phase 3 内容，当前仅占位。
+Full design doc: [`doc/signaldigest-open-source-design-20260612.md`](doc/signaldigest-open-source-design-20260612.md).
 
 ---
 
-## 2. 项目结构
+## 1. Current Status
+
+**Phase 1 (App Store MVP)** scaffold is in place:
+
+- Backend runs locally: create tables, ingest App Store RSS reviews, classify, generate digest drafts via API.
+- Stubs remain for Google Play ingestion, App Store Connect, Apify, Notion export (roadmap items).
+- Frontend (Next.js) is a Phase 3 placeholder.
+
+---
+
+## 2. Project Structure
 
 ```text
 signal-digest/
-├── README.md                 # 本文件：项目说明书与规划
-├── doc/                      # 设计文档
-├── backend/                  # 后端（对应设计文档第 5.3 的 data-service）
-│   ├── pyproject.toml        # uv 管理的依赖
-│   ├── .env.example          # 环境变量样例
+├── README.md                 # This file (English)
+├── README.zh-CN.md           # Chinese documentation
+├── doc/                      # Design documents
+├── backend/                  # API + scheduler + LLM + email (design doc: data-service)
+│   ├── pyproject.toml
+│   ├── .env.example
 │   └── app/
-│       ├── main.py           # FastAPI 入口 + lifespan（建表 / 启动调度）
-│       ├── config.py         # pydantic-settings 配置
-│       ├── db.py             # 引擎 / 会话 / 建表
-│       ├── core/logging.py   # 统一日志
-│       ├── models/           # SQLModel 数据模型（第 6 章）
-│       ├── schemas/          # API 请求 / 响应模型
-│       ├── api/              # 路由：apps / competitors / reviews / digests（第 10 章）
-│       ├── services/         # 业务服务
-│       │   ├── ingestion/    # 采集适配器（base + app_store_rss + 其余桩 + registry）
-│       │   ├── url_parser.py        # App 链接解析
-│       │   ├── review_normalizer.py # 标准化 + 去重入库
-│       │   ├── review_classifier.py # 评论分类（规则兜底，待接 LLM）
-│       │   ├── change_detector.py   # 周期对比 / 变化检测
-│       │   ├── digest_generator.py  # LLM 周报生成
-│       │   ├── digest_delivery.py   # 邮件投递
-│       │   └── notion_exporter.py   # Notion 导出（可选）
-│       ├── prompts/          # LLM Prompt（第 9 章）
-│       └── scheduler/        # APScheduler 定时任务（每日采集 / 每周周报）
-└── frontend/                 # Next.js 前端（Phase 3，当前占位）
+│       ├── main.py           # FastAPI entry + lifespan (DB init / scheduler)
+│       ├── config.py
+│       ├── db.py
+│       ├── core/logging.py
+│       ├── models/           # SQLModel entities (design doc §6)
+│       ├── schemas/
+│       ├── api/              # apps / competitors / reviews / digests (design doc §10)
+│       ├── services/
+│       │   ├── ingestion/    # Adapters: app_store_rss + stubs + registry
+│       │   ├── review_normalizer.py
+│       │   ├── review_classifier.py
+│       │   ├── change_detector.py
+│       │   ├── digest_generator.py
+│       │   ├── digest_delivery.py
+│       │   └── notion_exporter.py
+│       ├── prompts/
+│       └── scheduler/
+└── frontend/                 # Next.js placeholder (Phase 3)
 ```
 
-> 命名说明：设计文档第 5.3 称后端为 `data-service`，因其实际承载 API + 调度 + LLM + 邮件，本仓库改用更直观的 `backend/`。
+> Naming note: the design doc calls the backend `data-service`; this repo uses `backend/` because it owns API, scheduling, LLM, and email—not just data.
 
 ---
 
-## 3. 技术栈
+## 3. Tech Stack
 
-| 层 | 选型 |
+| Layer | Choice |
 |---|---|
-| 后端框架 | FastAPI + SQLModel |
-| 数据库 | SQLite（开发）/ PostgreSQL（生产）|
-| 调度 | APScheduler（内嵌后台调度）|
-| LLM | LiteLLM（OpenAI / Claude / DeepSeek / Gemini 通用）|
-| 邮件 | SMTP / Resend / Postmark |
-| 采集 | App Store 公开 RSS（首期）；Google Play / Apify / 官方 API 后续 |
-| 包管理 | uv |
-| 前端 | Next.js（Phase 3）|
+| Backend | FastAPI + SQLModel |
+| Database | SQLite (dev) / PostgreSQL (prod) |
+| Scheduler | APScheduler (in-process) |
+| LLM | LiteLLM (OpenAI / Claude / DeepSeek / Gemini) |
+| Email | SMTP / Resend / console |
+| Ingestion | App Store public RSS (MVP); Google Play / Apify later |
+| Package manager | uv |
+| Frontend | Next.js (Phase 3) |
 
 ---
 
-## 4. 快速开始（后端）
+## 4. Quick Start (Backend)
 
-前置：已安装 [uv](https://docs.astral.sh/uv/)。所有命令在 PowerShell 下执行。
+Requires [uv](https://docs.astral.sh/uv/). Commands below use PowerShell.
 
 ```powershell
 cd backend
@@ -79,32 +81,33 @@ uv sync
 uv run uvicorn app.main:app --reload
 ```
 
-启动后：
+After startup:
 
-- 健康检查：http://127.0.0.1:8000/health
-- 交互式 API 文档（Swagger）：http://127.0.0.1:8000/docs
+- Health: http://127.0.0.1:8000/health
+- Swagger UI: http://127.0.0.1:8000/docs
 
-### 最小闭环体验
+### Minimal end-to-end loop
 
-1. 添加一个监控 App（解析 app_store_id）：
+1. Add a monitored app (auto-parses `app_store_id`):
 
 ```powershell
-curl -X POST http://127.0.0.1:8000/api/apps -H "Content-Type: application/json" -d '{\"name\":\"Demo\",\"app_store_url\":\"https://apps.apple.com/us/app/x/id389801252\",\"country_codes\":[\"us\"]}'
+Invoke-RestMethod -Method Post http://127.0.0.1:8000/api/apps -ContentType 'application/json' -Body '{"name":"Demo","app_store_url":"https://apps.apple.com/us/app/id389801252","country_codes":["us"]}'
 ```
 
-2. 手动采集评论：`POST /api/apps/{id}/ingest`
-3. 生成周报草稿：`POST /api/digests/generate?app_id={id}`（需配置 `LLM_API_KEY`）
-4. 查看周报：`GET /api/digests?app_id={id}`
+2. Ingest reviews: `POST /api/apps/{id}/ingest` (auto-classifies new reviews)
+3. Generate digest: `POST /api/digests/generate?app_id={id}` (requires `LLM_API_KEY`)
+4. View digest: `GET /api/digests?app_id={id}`
 
 ---
 
-## 5. API 一览（第 10 章）
+## 5. API Overview (design doc §10)
 
-| 模块 | 方法 | 路径 |
+| Module | Method | Path |
 |---|---|---|
 | Apps | GET / POST | `/api/apps` |
 | Apps | GET / PATCH | `/api/apps/{id}` |
 | Apps | POST | `/api/apps/{id}/ingest` |
+| Apps | POST | `/api/apps/{id}/classify` |
 | Competitors | GET / POST | `/api/apps/{id}/competitors` |
 | Competitors | DELETE | `/api/competitors/{id}` |
 | Reviews | GET | `/api/reviews?app_id=` |
@@ -115,46 +118,42 @@ curl -X POST http://127.0.0.1:8000/api/apps -H "Content-Type: application/json" 
 
 ---
 
-## 6. 核心数据流
+## 6. Core Data Flow
 
 ```text
-采集评论 -> 标准化去重入库 -> 分类(ReviewInsight) -> 周期对比 -> LLM 生成周报 -> 人工审核 -> 邮件发送
+Ingest → normalize & dedupe → classify (ReviewInsight) → week-over-week diff → LLM digest → review → email
 ```
 
-- 采集：`services/ingestion/*`（统一 `ReviewIngestor` 接口，新数据源 1 天可接入）
-- 入库去重：`platform + external_review_id`（无稳定 id 时用 sha256 兜底）
-- 周报：`DigestReport.sections` 为固定 JSON 结构，每条结论绑定 evidence review ids
-- 审核：`status` 走 `draft -> approved -> sent`，仅 approved 才发送
+- Ingestion: `services/ingestion/*` via `ReviewIngestor` (new source ~1 day to add)
+- Dedupe key: `platform + external_review_id` (sha256 fallback when no stable id)
+- Digest: fixed JSON `sections` + evidence review ids per insight
+- Delivery: only `status=approved` reports are sent
 
 ---
 
-## 7. 路线图
+## 7. Roadmap
 
-- **Phase 0**：手工验证付费意愿（做免费报告、收试点）。
-- **Phase 1（进行中）**：App Store MVP 闭环。
-- **Phase 2**：Google Play 支持（best-effort / 第三方 / 官方 API）。
-- **Phase 3**：产品化（前端 onboarding、周报详情页、Stripe、多 App、发版告警、PDF 导出）。
-- **Phase 4**：复用架构扩展到视频站评论分析。
+- **Phase 0**: Manual paid validation (free reports → pilots)
+- **Phase 1 (in progress)**: App Store MVP loop
+- **Phase 2**: Google Play (best-effort / third-party / official API)
+- **Phase 3**: Productization (frontend onboarding, Stripe, multi-app, release alerts, PDF)
+- **Phase 4**: Reuse architecture for video-platform comment analysis
 
 ---
 
-## 8. 待补齐（TODO）
+## 8. TODO
 
-- [x] LiteLLM 评论分类（`review_classifier.py`，批量调用 + 规则降级 + 成本控制）
-- [x] 邮件真实投递（SMTP / Resend / console，`email_sender.py` + `digest_delivery.py`）
-- [ ] Google Play 采集器（`ingestion/google_play.py`）
-- [ ] Notion 导出（`notion_exporter.py`）
-- [ ] Alembic 迁移替代 `create_all`
-- [ ] 前端（Next.js）
+- [x] LiteLLM review classification (batch + rule fallback + cost control)
+- [x] Email delivery (SMTP / Resend / console)
+- [ ] Google Play ingestor
+- [ ] Notion export
+- [ ] Alembic migrations (replace `create_all`)
+- [ ] Frontend (Next.js)
 
-### 已实现细节
+### Implemented details
 
-**评论分类（第 6.4 / 9.4）**
-- `ENABLE_LLM_CLASSIFICATION=true` 且配置了 `LLM_API_KEY` 时，按 `CLASSIFIER_BATCH_SIZE` 分批调 LiteLLM，产出 sentiment / intent / feature_area / priority / summary。
-- 未配置 Key 或单批调用失败时，自动降级为基于评分的规则分类，流程不中断。
-- 采集后（手动 `POST /api/apps/{id}/ingest` 与每日定时任务）自动对新评论分类；也可单独 `POST /api/apps/{id}/classify` 补跑。
+**Classification (§6.4 / §9.4)**  
+When `ENABLE_LLM_CLASSIFICATION=true` and `LLM_API_KEY` is set, reviews are classified in batches via LiteLLM (`sentiment`, `intent`, `feature_area`, `priority`, `summary`). On failure or missing key, rule-based fallback from star ratings keeps the pipeline running. Classification runs after ingest (manual or scheduled) or via `POST /api/apps/{id}/classify`.
 
-**邮件投递（第 7.3）**
-- `EMAIL_PROVIDER` 支持 `smtp`（STARTTLS/SSL）、`resend`（HTTP API）、`console`（仅打印，本地开发用）。
-- 仅 `status=approved` 的周报会真正发送；发送成功置 `sent`，失败置 `failed`。
-- HTML 模板按"像邮件不像 BI 面板"渲染，dict/字符串条目均安全转义。
+**Email (§7.3)**  
+`EMAIL_PROVIDER`: `smtp` (STARTTLS/SSL), `resend`, or `console` (log-only for local dev). Only `approved` digests are sent; success → `sent`, failure → `failed`. HTML template reads like an email, not a BI dashboard.

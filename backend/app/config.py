@@ -44,6 +44,7 @@ class Settings(BaseSettings):
     llm_classifier_model: str = "openai/gpt-4o-mini"
     llm_api_key: str | None = None
     llm_api_base: str | None = None
+    llm_timeout: float = 120.0  # LiteLLM 请求超时（秒）
 
     # ---- 评论分类（第 6.4 / 9.4）----
     # 是否启用 LLM 分类；关闭时仅用基于评分的规则兜底，零成本。

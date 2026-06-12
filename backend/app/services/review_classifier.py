@@ -118,6 +118,7 @@ def _classify_batch_llm(reviews: list[AppReview]) -> dict[int, ReviewInsight]:
         model=settings.llm_classifier_model,
         api_key=settings.llm_api_key,
         api_base=settings.llm_api_base,
+        timeout=settings.llm_timeout,
         messages=[{"role": "user", "content": prompt}],
         response_format={"type": "json_object"},
     )

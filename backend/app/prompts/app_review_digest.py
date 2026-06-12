@@ -40,7 +40,7 @@ _SYSTEM_RULES = """你是一名资深 App 产品分析师。
 """
 
 
-def _serialize_reviews(reviews, limit: int = 40) -> list[dict]:
+def _serialize_reviews(reviews, limit: int = 15) -> list[dict]:
     out = []
     for r in reviews[:limit]:
         out.append(
@@ -48,7 +48,7 @@ def _serialize_reviews(reviews, limit: int = 40) -> list[dict]:
                 "review_id": r.id,
                 "rating": r.rating,
                 "title": r.title,
-                "body": (r.body or "")[:500],
+                "body": (r.body or "")[:280],
                 "country": r.country,
                 "app_version": r.app_version,
                 "created_at": r.source_created_at.isoformat(),

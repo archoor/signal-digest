@@ -36,3 +36,6 @@ Thumbs.db
 
 # 日志
 *.log
+
+# 本地临时输出（E2E 测试周报等）
+backend/tmp/
