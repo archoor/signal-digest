@@ -39,3 +39,6 @@ Thumbs.db
 
 # 本地临时输出（E2E 测试周报等）
 backend/tmp/
+
+# Firecrawl CLI 本地缓存/临时文档
+.firecrawl/
