@@ -26,9 +26,9 @@
 
 **Phase 1（App Store MVP）框架** 已搭好并在持续完善：
 
-- 后端：建表、App Store RSS 采集、分类、周报生成、邮件投递、调度器、运行配置 API。
+- 后端：双平台采集、规则 + LLM 分类、评论重点、周报生成、邮件投递、调度器、运行配置 API（持久化到 `.env`）。
 - 前端：Next.js 管理后台（监控 / 评论 / 周报审核发送 / 设置页）。详见 [`frontend/README.md`](frontend/README.md)。
-- 桩实现或尚未生产就绪：Google Play 采集、App Store Connect、Apify、Notion 导出、Alembic 迁移、计费。
+- 桩实现或尚未生产就绪：App Store Connect、Apify、Notion 导出（设置页已可配）、Alembic 迁移、计费。
 
 > 本仓库会**逐步更新**，欢迎 Star / Watch 关注该方向进展。
 
@@ -82,7 +82,7 @@ signal-digest/
 | 调度 | APScheduler（内嵌后台调度）|
 | LLM | LiteLLM（OpenAI / Claude / DeepSeek / Gemini 通用）|
 | 邮件 | SMTP / Resend / console |
-| 采集 | App Store 公开 RSS（首期）；Google Play / Apify / 官方 API 后续 |
+| 采集 | App Store RSS + Google Play；外网代理在设置页配置（采集与 LLM 共用）|
 | 包管理 | uv |
 | 前端 | Next.js 16（App Router + TypeScript + Tailwind）|
 
@@ -104,7 +104,7 @@ uv run uvicorn app.main:app --reload
 
 - 健康检查：http://127.0.0.1:8000/health
 - Swagger 文档：http://127.0.0.1:8000/docs
-- **外网代理**：管理后台「设置 / 用量 → 运行配置 → 外网代理」中配置（留空=直连）。支持无认证 `socks5://127.0.0.1:12080` 与带认证 `socks5://用户名:密码@127.0.0.1:12080`；密码含特殊字符需 URL 编码。
+- **外网代理**：**设置 → 采集与网络**（留空=直连）。采集、App 搜索与 **LLM 调用**共用；支持 `socks5://127.0.0.1:12080` 或带认证 URL，可先点 **测试连通性** 再保存。
 
 ### 前端（管理后台）
 
@@ -127,11 +127,12 @@ Invoke-RestMethod "http://127.0.0.1:8000/api/apps/search?q=Notion&country=us"
 Invoke-RestMethod -Method Post http://127.0.0.1:8000/api/apps -ContentType 'application/json' -Body '{"name":"Demo","app_store_id":"389801252","google_play_package":"notion.id","country_codes":["us"]}'
 ```
 
-发送周报前请在 **设置 → 周报接收邮箱** 配置 `DIGEST_RECIPIENT_EMAIL`。
+在 **设置页** 配置 LLM API Key、周报收件邮箱、Notion、默认国家/超时、外网代理、调度等（保存后写入 `backend/.env` 管理段）。
 
-2. 手动采集评论：`POST /api/apps/{id}/ingest`（自动分类新评论）
-3. 生成周报草稿：`POST /api/digests/generate?app_id={id}`（需配置 `LLM_API_KEY`）
-4. 查看周报：`GET /api/digests?app_id={id}`
+2. 采集评论：`POST /api/apps/{id}/ingest`（不阻塞 LLM，避免超时）
+3. 补跑分类：`POST /api/apps/{id}/classify` 或详情页 **补跑分类**（规则分类立即返回；好评/差评深度分析后台按批执行）
+4. 生成周报：`POST /api/digests/generate?app_id={id}`（需设置页配置 LLM）
+5. 查看周报：`GET /api/digests?app_id={id}`；**评论重点** 在 enrich 完成后刷新可见
 
 ---
 
@@ -153,7 +154,10 @@ Invoke-RestMethod -Method Post http://127.0.0.1:8000/api/apps -ContentType 'appl
 | Digests | GET | `/api/digests` / `/api/digests/{id}` |
 | Digests | PATCH | `/api/digests/{id}`（status/title/summary；支持审核流转）|
 | Digests | POST | `/api/digests/generate` / `/api/digests/{id}/send` |
-| Settings | GET / PATCH | `/api/settings`（LLM / 邮件 / Notion / 代理 / 调度；持久化到 `.env`）|
+| Settings | GET / PATCH | `/api/settings`（LLM / 邮件 / Notion / 采集 / 代理 / 调度 → `.env`）|
+| Settings | POST | `/api/settings/proxy-test`（代理连通性测试，无需先保存）|
+
+**`.env` 约定：** `.env.example` 仅含基础设施（数据库、跨域等）；业务配置均在 **设置页** 维护，保存后自动写入 `.env`。
 
 前端跨域由 `.env` 的 `CORS_ORIGINS` 控制，默认放行 `http://localhost:3000`。
 
@@ -200,7 +204,7 @@ Invoke-RestMethod -Method Post http://127.0.0.1:8000/api/apps -ContentType 'appl
 | Google Play Developer API（自有 App）| 计划中 | 官方授权路径 |
 | Apify / 第三方 Review API | 计划中 | 桩位于 `ingestion/apify_adapter.py` |
 | 竞品评论采集闭环 | 计划中 | 调度任务接入竞品 App |
-| Notion 导出（人工审核台）| 计划中 | Weekly Reports 库同步 |
+| Notion 导出（人工审核台）| 进行中 | 设置页可配 Integration；`notion_exporter.py` + 导出 API 已有 |
 | 多国家采集策略优化 | 计划中 | 默认策略与配额控制 |
 
 ### Phase 3 — 产品化与运维
@@ -235,16 +239,18 @@ Invoke-RestMethod -Method Post http://127.0.0.1:8000/api/apps -ContentType 'appl
 - [x] App 名称搜索添加（iTunes + Google Play）
 - [x] 全局周报接收邮箱（设置页）
 - [x] 评论重点（好评/差评分析分栏）
-- [ ] Notion 导出（`notion_exporter.py`）
+- [x] Notion 集成配置（设置页：API Key / 数据库 ID）
+- [ ] Notion 导出完整流程（`notion_exporter.py`）
 - [ ] Alembic 迁移替代 `create_all`
 - [x] 前端（Next.js 管理后台：监控 / 评论 / 周报审核与发送）
 
 ### 已实现细节
 
 **评论分类（第 6.4 / 9.4）**
-- `ENABLE_LLM_CLASSIFICATION=true` 且配置了 `LLM_API_KEY` 时，按 `CLASSIFIER_BATCH_SIZE` 分批调 LiteLLM。
-- 未配置 Key 或单批调用失败时，自动降级为基于评分的规则分类。
-- 采集后自动分类；也可 `POST /api/apps/{id}/classify` 补跑。
+- 两阶段：**规则分类**（情绪/优先级，秒级）→ **LLM enrich**（后台线程，按批生成「好在哪里/痛点」）。
+- 有效字数 ≥ `CLASSIFIER_MIN_BODY_CHARS`（默认 20）的好评/差评才进入 LLM；过短评论仅规则分类。
+- 采集后不自动跑 LLM；请点 **补跑分类**，完成后刷新 **评论重点**。
+- LLM 与采集共用设置页中的外网代理。
 
 **邮件投递（第 7.3）**
 - `EMAIL_PROVIDER` 支持 `smtp`、`resend`、`console`（本地开发只打日志）。

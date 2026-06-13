@@ -26,9 +26,9 @@ Use it to self-host, learn the architecture, or as a starting point for customiz
 
 **Phase 1 (App Store MVP) framework** is in place and evolving:
 
-- Backend: tables, App Store RSS ingest, classification, digest generation, email delivery, scheduler, settings API.
+- Backend: dual-platform ingest (App Store + Google Play), rule + LLM classification, review highlights, digest generation, email delivery, scheduler, runtime settings API (persists to `.env`).
 - Frontend: Next.js admin UI (monitor / reviews / digest review & send / runtime settings). See [`frontend/README.md`](frontend/README.md).
-- Stubs or not yet production-ready: Google Play ingest, App Store Connect, Apify, Notion export, Alembic migrations, billing.
+- Stubs or not yet production-ready: App Store Connect, Apify, Notion export (config UI ready), Alembic migrations, billing.
 
 > This repo will be **updated step by step**. Star or watch if you follow this direction.
 
@@ -81,7 +81,7 @@ signal-digest/
 | Scheduler | APScheduler (in-process) |
 | LLM | LiteLLM (OpenAI / Claude / DeepSeek / Gemini) |
 | Email | SMTP / Resend / console |
-| Ingestion | App Store public RSS (MVP); Google Play / Apify later |
+| Ingestion | App Store RSS + Google Play (`google-play-scraper`); SOCKS5/HTTP proxy via settings |
 | Package manager | uv |
 | Frontend | Next.js 16 (App Router + TypeScript + Tailwind) |
 
@@ -96,12 +96,14 @@ Requires [uv](https://docs.astral.sh/uv/) and Node.js 18+. Commands use PowerShe
 ```powershell
 cd backend
 copy .env.example .env
+# .env keeps infra only (DB, CORS, etc.); configure LLM / email / Notion / proxy / ingest / scheduler in admin Settings
 uv sync
 uv run uvicorn app.main:app --reload
 ```
 
 - Health: http://127.0.0.1:8000/health
 - Swagger UI: http://127.0.0.1:8000/docs
+- **Outbound proxy**: Admin **Settings → Ingest & network** (empty = direct). Used for iTunes/Google Play **and** LiteLLM calls. Test with **Test connectivity** before saving.
 
 ### Frontend (admin UI)
 
@@ -126,11 +128,12 @@ Invoke-RestMethod "http://127.0.0.1:8000/api/apps/search?q=Notion&country=us"
 Invoke-RestMethod -Method Post http://127.0.0.1:8000/api/apps -ContentType 'application/json' -Body '{"name":"Demo","app_store_id":"389801252","google_play_package":"notion.id","country_codes":["us"]}'
 ```
 
-Configure **Settings → Weekly report recipient email** (`DIGEST_RECIPIENT_EMAIL`) before sending digests.
+Configure runtime options in **Settings** (LLM API key, weekly recipient email, Notion integration, proxy, ingest defaults, scheduler). Values persist to `backend/.env` under the managed section.
 
-2. Ingest reviews: `POST /api/apps/{id}/ingest` (auto-classifies new reviews)
-3. Generate digest: `POST /api/digests/generate?app_id={id}` (requires `LLM_API_KEY`)
-4. View digest: `GET /api/digests?app_id={id}`
+2. Ingest reviews: `POST /api/apps/{id}/ingest` (does not block on LLM; run classify separately)
+3. Classify & enrich: `POST /api/apps/{id}/classify` or **Re-run classification** in the UI (rule classify immediately; LLM praise/complaint analysis runs in background)
+4. Generate digest: `POST /api/digests/generate?app_id={id}` (requires LLM API key in Settings)
+5. View digest: `GET /api/digests?app_id={id}`
 
 ---
 
@@ -152,7 +155,10 @@ Configure **Settings → Weekly report recipient email** (`DIGEST_RECIPIENT_EMAI
 | Digests | GET | `/api/digests` / `/api/digests/{id}` |
 | Digests | PATCH | `/api/digests/{id}` (status/title/summary; review workflow) |
 | Digests | POST | `/api/digests/generate` / `/api/digests/{id}/send` |
-| Settings | GET / PATCH | `/api/settings` (LLM / email / scheduler; persists to `.env`) |
+| Settings | GET / PATCH | `/api/settings` (LLM / email / Notion / ingest / proxy / scheduler → `.env`) |
+| Settings | POST | `/api/settings/proxy-test` (test proxy without saving) |
+
+**`.env` layout:** keep only infrastructure keys in `.env.example` (`DATABASE_URL`, `CORS_ORIGINS`, etc.). All business/runtime config is edited in **Settings** and written back to `.env` on save.
 
 CORS for the frontend is controlled by `CORS_ORIGINS` (`.env`), defaulting to `http://localhost:3000`.
 
@@ -199,7 +205,7 @@ Roadmap for this framework. Items may shift; completed work stays in git history
 | Google Play Developer API (own apps) | Planned | Official auth path |
 | Apify / third-party review API adapter | Planned | Stub exists in `ingestion/apify_adapter.py` |
 | Competitor review ingest loop | Planned | Wire competitor apps into daily job |
-| Notion export for manual review | Planned | Weekly Reports database sync |
+| Notion export for manual review | Planned | Settings UI + `notion_exporter.py`; export API exists |
 | Multi-country ingest strategy | Planned | Smarter defaults & quotas |
 
 ### Phase 3 — Productization & operations
@@ -235,13 +241,14 @@ Roadmap for this framework. Items may shift; completed work stays in git history
 - [x] App name search onboarding (iTunes + Google Play)
 - [x] Global digest recipient email in settings
 - [x] Review highlights (praise / complaints with analysis)
-- [ ] Notion export
+- [x] Notion integration settings (API key / database ID; export wiring in progress)
+- [ ] Notion export (full workflow)
 - [ ] Alembic migrations (replace `create_all`)
 
 ### Implemented details
 
 **Classification (§6.4 / §9.4)**  
-When `ENABLE_LLM_CLASSIFICATION=true` and `LLM_API_KEY` is set, reviews are classified in batches via LiteLLM (`sentiment`, `intent`, `feature_area`, `priority`, `summary`). On failure or missing key, rule-based fallback from star ratings keeps the pipeline running. Classification runs after ingest (manual or scheduled) or via `POST /api/apps/{id}/classify`.
+Two-phase flow: (1) **rule classify** on ingest or via `POST /api/apps/{id}/classify` — sentiment, priority, placeholder summaries for long praise/complaints; (2) **LLM enrich** in a background thread — batch analysis of “what’s good / pain points” for reviews with enough text (`CLASSIFIER_MIN_BODY_CHARS`, default 20). Requires `ENABLE_LLM_CLASSIFICATION` and API key in **Settings**; uses the same outbound proxy as ingest. Review **Highlights** tab shows enriched summaries after refresh.
 
 **Email (§7.3)**  
 `EMAIL_PROVIDER`: `smtp` (STARTTLS/SSL), `resend`, or `console` (log-only for local dev). Only `approved` digests are sent; success → `sent`, failure → `failed`. HTML template reads like an email, not a BI dashboard.

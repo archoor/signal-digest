@@ -55,7 +55,7 @@ npm run lint    # ESLint
 | `/monitor/[id]` | App 详情：采集 / 分类 / 生成周报；评论、竞品、设置三个标签页 |
 | `/reports` | 周报列表（可按 App 过滤）|
 | `/reports/[id]` | 周报详情：像邮件一样呈现 + 证据评论 + 审核状态流转 + 发送 + 导出 Markdown |
-| `/settings` | 后端连接、**LLM / 邮件 / 调度配置**（写入 `.env` 并热重载）、用量统计 |
+| `/settings` | 运行配置：LLM / 邮件 / Notion / 采集与网络 / 调度（写入 `backend/.env` 并热重载）|
 
 ## 目录结构
 
@@ -81,12 +81,12 @@ frontend/
 
 ## 管理能力一览
 
-- **App 监控**：新增 App、编辑配置（邮箱 / 国家 / 状态 / 发版日期）、暂停 / 恢复、立即采集、补跑分类、生成周报。
+- **App 监控**：新增 App、编辑配置、暂停/恢复、立即采集、补跑分类（规则+后台 LLM enrich）、生成周报。
 - **竞品**：每个 App 添加 / 删除 1-3 个竞品（链接自动识别平台）。
-- **评论**：浏览最近评论与高优先级（P0/P1）评论。
+- **评论**：最近评论、高优先级（P0/P1）、**评论重点**（好评/差评分栏 + LLM 分析摘要）。
 - **周报**：列表与详情、审核状态流转（草稿 → 待审核 → 已审核）、发送邮件（仅「已审核」可发）、导出 Markdown、逐条查看证据评论原文。
 
 ## 与后端的对接
 
-所有请求经 `lib/api.ts` 统一发往 `NEXT_PUBLIC_API_BASE + /api`。后端接口见根目录 README 第 5 节与设计文档第 10 章。
+所有请求经 `lib/api.ts` 发送：浏览器走同源 `/api`（Next.js rewrite 到后端，避免系统代理拦截 localhost）；SSR 直连 `NEXT_PUBLIC_API_BASE`。
 为支持周报审核流转，后端新增了 `PATCH /api/digests/{id}`（更新 status / title / summary）。
