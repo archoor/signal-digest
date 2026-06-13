@@ -1,6 +1,7 @@
-"""App URL 解析（设计文档第 7.1 onboarding）。
+"""App URL 解析与构造（设计文档第 7.1 onboarding）。
 
-从用户粘贴的 App Store / Google Play 链接中解析出 app_store_id / google_play_package。
+从用户粘贴的 App Store / Google Play 链接中解析出 app_store_id / google_play_package，
+或根据 ID 反向构造标准链接。
 """
 
 from __future__ import annotations
@@ -38,3 +39,18 @@ def parse_app_url(url: str) -> ParsedAppUrl:
         if m:
             result.google_play_package = m.group(1)
     return result
+
+
+def build_app_store_url(app_store_id: str, country: str = "us") -> str:
+    """根据 App Store ID 构造标准链接。"""
+    return f"https://apps.apple.com/{country.lower()}/app/id{app_store_id}"
+
+
+def build_google_play_url(package: str) -> str:
+    """根据包名构造 Google Play 链接。"""
+    return f"https://play.google.com/store/apps/details?id={package}"
+
+
+def normalize_app_name(name: str) -> str:
+    """规范化 App 名称，用于跨平台合并匹配。"""
+    return re.sub(r"[^a-z0-9]", "", name.lower())
