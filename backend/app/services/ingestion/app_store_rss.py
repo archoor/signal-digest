@@ -1,28 +1,45 @@
 """App Store 公开 RSS 采集器（设计文档第 4.2）。
 
-URL 形式：
-  https://itunes.apple.com/{country}/rss/customerreviews/page=1/id={app_id}/sortby=mostrecent/json
-
-这是首期最快路径：无需授权，可采集竞品公开评论。
+Apple RSS 在限流时会返回 HTTP 200 但 feed 中无 entry，需重试并给出明确提示。
 """
 
 from __future__ import annotations
 
+import time
 from datetime import UTC, datetime
 
 import httpx
 
 from app.config import get_settings
 from app.core.logging import get_logger
+from app.services.external_http import httpx_client_kwargs, raise_if_proxy_error
 from app.models.enums import Platform
 from app.services.ingestion.base import RawReview, ReviewIngestor
+from app.services.ingestion.errors import IngestSourceError
 
 logger = get_logger(__name__)
 
-_RSS_URL = (
-    "https://itunes.apple.com/{country}/rss/customerreviews/"
-    "page={page}/id={app_id}/sortby=mostrecent/json"
+_RSS_URL_TEMPLATES = (
+    "https://itunes.apple.com/{country}/rss/customerreviews/id={app_id}/sortBy=mostRecent/page={page}/json",
+    "https://itunes.apple.com/{country}/rss/customerreviews/page={page}/id={app_id}/sortby=mostrecent/json",
 )
+
+_DEFAULT_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    ),
+    "Accept": "application/json",
+}
+
+
+def _is_rss_throttled(feed: dict) -> bool:
+    """Apple 限流时常见：200 OK 但 feed 里没有 entry。"""
+    entry = feed.get("entry")
+    if entry is None:
+        return True
+    entries = [entry] if isinstance(entry, dict) else entry
+    return not any(isinstance(e, dict) and "im:rating" in e for e in entries)
 
 
 class AppStoreRssIngestor(ReviewIngestor):
@@ -30,10 +47,9 @@ class AppStoreRssIngestor(ReviewIngestor):
 
     platform = Platform.APP_STORE
 
-    def __init__(self, max_pages: int = 5) -> None:
-        # App Store RSS 每页约 50 条，最多约 10 页。
+    def __init__(self, max_pages: int = 5, max_retries: int = 3) -> None:
         self.max_pages = max_pages
-        self._timeout = get_settings().ingest_http_timeout
+        self.max_retries = max_retries
 
     def fetch(
         self,
@@ -42,18 +58,47 @@ class AppStoreRssIngestor(ReviewIngestor):
         country_codes: list[str] | None = None,
         max_reviews: int = 200,
     ) -> list[RawReview]:
-        countries = country_codes or get_settings().country_code_list
-        reviews: list[RawReview] = []
+        settings = get_settings()
+        countries = country_codes or settings.country_code_list
 
-        with httpx.Client(timeout=self._timeout) as client:
-            for country in countries:
-                for page in range(1, self.max_pages + 1):
-                    if len(reviews) >= max_reviews:
-                        break
-                    batch = self._fetch_page(client, app_identifier, country, page)
-                    if not batch:
-                        break
-                    reviews.extend(batch)
+        try:
+            with httpx.Client(**httpx_client_kwargs(headers=_DEFAULT_HEADERS)) as client:
+                return self._fetch_all_pages(
+                    client, app_identifier, countries, max_reviews
+                )
+        except httpx.HTTPError as exc:
+            raise_if_proxy_error(exc, "App Store RSS 采集")
+            raise
+
+    def _fetch_all_pages(
+        self,
+        client: httpx.Client,
+        app_identifier: str,
+        countries: list[str],
+        max_reviews: int,
+    ) -> list[RawReview]:
+        reviews: list[RawReview] = []
+        throttled = False
+
+        for country in countries:
+            for page in range(1, self.max_pages + 1):
+                if len(reviews) >= max_reviews:
+                    break
+                batch, page_throttled = self._fetch_page_with_retry(
+                    client, app_identifier, country, page
+                )
+                if page_throttled:
+                    throttled = True
+                if not batch:
+                    break
+                reviews.extend(batch)
+
+        if not reviews and throttled:
+            raise IngestSourceError(
+                Platform.APP_STORE.value,
+                "App Store RSS 未返回评论（可能被 Apple 限流，或当前网络无法访问 iTunes）。"
+                "请稍后重试，或在管理后台「设置」页配置外网代理。",
+            )
 
         logger.info(
             "AppStore RSS 采集完成 app_id=%s countries=%s 共 %d 条",
@@ -63,26 +108,52 @@ class AppStoreRssIngestor(ReviewIngestor):
         )
         return reviews[:max_reviews]
 
-    def _fetch_page(
+    def _fetch_page_with_retry(
         self, client: httpx.Client, app_id: str, country: str, page: int
-    ) -> list[RawReview]:
-        url = _RSS_URL.format(country=country, page=page, app_id=app_id)
-        try:
-            resp = client.get(url)
-            resp.raise_for_status()
-            data = resp.json()
-        except (httpx.HTTPError, ValueError) as exc:
-            logger.warning("RSS 抓取失败 url=%s err=%s", url, exc)
-            return []
+    ) -> tuple[list[RawReview], bool]:
+        """带退避重试的单页抓取；返回 (评论列表, 是否遭遇限流)。"""
+        throttled = False
+        delay = 1.5
 
-        entries = data.get("feed", {}).get("entry", [])
-        # 第一个 entry 通常是 App 自身信息，需跳过；只有评论才有 im:rating。
-        out: list[RawReview] = []
-        for entry in entries:
-            if "im:rating" not in entry:
-                continue
-            out.append(self._parse_entry(entry, country))
-        return out
+        for attempt in range(1, self.max_retries + 1):
+            for template in _RSS_URL_TEMPLATES:
+                url = template.format(country=country, app_id=app_id, page=page)
+                try:
+                    resp = client.get(url)
+                    resp.raise_for_status()
+                    data = resp.json()
+                except (httpx.HTTPError, ValueError) as exc:
+                    raise_if_proxy_error(exc, "App Store RSS 抓取")
+                    logger.warning("RSS 抓取失败 url=%s err=%s", url, exc)
+                    continue
+
+                feed = data.get("feed", {})
+                if _is_rss_throttled(feed):
+                    throttled = True
+                    logger.warning(
+                        "RSS 疑似限流 app_id=%s country=%s page=%s attempt=%s",
+                        app_id,
+                        country,
+                        page,
+                        attempt,
+                    )
+                    continue
+
+                entries = feed.get("entry", [])
+                if isinstance(entries, dict):
+                    entries = [entries]
+                out: list[RawReview] = []
+                for entry in entries:
+                    if "im:rating" not in entry:
+                        continue
+                    out.append(self._parse_entry(entry, country))
+                return out, False
+
+            if attempt < self.max_retries:
+                time.sleep(delay)
+                delay *= 2
+
+        return [], throttled
 
     def _parse_entry(self, entry: dict, country: str) -> RawReview:
         def _label(key: str) -> str | None:
@@ -117,7 +188,6 @@ class AppStoreRssIngestor(ReviewIngestor):
         if not value:
             return datetime.now(UTC)
         try:
-            # 形如 2026-06-01T12:34:56-07:00
             return datetime.fromisoformat(value)
         except ValueError:
             return datetime.now(UTC)

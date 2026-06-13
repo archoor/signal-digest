@@ -7,6 +7,8 @@
 from __future__ import annotations
 
 import hashlib
+from datetime import date, datetime
+from enum import Enum
 
 from sqlmodel import Session, select
 
@@ -22,6 +24,21 @@ def _hash_author(author: str | None) -> str | None:
     if not author:
         return None
     return hashlib.sha256(author.encode("utf-8")).hexdigest()[:16]
+
+
+def json_safe_payload(value: object) -> object:
+    """将 raw_payload 转为可 JSON 序列化的结构（Google Play 含 datetime）。"""
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, Enum):
+        return value.value
+    if isinstance(value, dict):
+        return {k: json_safe_payload(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [json_safe_payload(v) for v in value]
+    return value
 
 
 def persist_reviews(
@@ -58,7 +75,9 @@ def persist_reviews(
             language=raw.language,
             app_version=raw.app_version,
             source_created_at=raw.source_created_at,
-            raw_payload=raw.raw_payload,
+            raw_payload=json_safe_payload(raw.raw_payload)
+            if raw.raw_payload is not None
+            else None,
         )
         session.add(review)
         inserted += 1
