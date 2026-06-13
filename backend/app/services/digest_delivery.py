@@ -19,7 +19,7 @@ from app.services.email_sender import EmailDeliveryError, send_email
 logger = get_logger(__name__)
 
 # 周报详情页要求像邮件、不像 BI 面板（第 11.2）：标题 + 摘要 + 重点变化 + 行动。
-_SECTION_TITLES = {
+SECTION_TITLES = {
     "top_changes": "本周最重要的变化",
     "new_complaints": "新增/增多的投诉",
     "new_praise": "新增/增多的好评",
@@ -31,7 +31,7 @@ _SECTION_TITLES = {
 }
 
 
-def _item_to_text(item) -> str:
+def item_to_text(item) -> str:
     """把 section 中的单个条目（可能是字符串或 dict）转成可读文本。"""
     if isinstance(item, str):
         return item
@@ -48,8 +48,8 @@ def _item_to_text(item) -> str:
 def _render_section(key: str, items: list) -> str:
     if not items:
         return ""
-    title = _SECTION_TITLES.get(key, key)
-    rows = "".join(f"<li>{escape(_item_to_text(i))}</li>" for i in items)
+    title = SECTION_TITLES.get(key, key)
+    rows = "".join(f"<li>{escape(item_to_text(i))}</li>" for i in items)
     return f"<h3 style='margin:18px 0 6px'>{escape(title)}</h3><ul>{rows}</ul>"
 
 
@@ -59,7 +59,7 @@ def render_email_html(report: DigestReport) -> str:
     summary = escape(report.summary or "")
     body_sections = "".join(
         _render_section(key, report.sections.get(key, []))
-        for key in _SECTION_TITLES
+        for key in SECTION_TITLES
     )
     period = f"{report.period_start:%Y-%m-%d} ~ {report.period_end:%Y-%m-%d}"
 

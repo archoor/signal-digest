@@ -23,3 +23,10 @@ def test_parse_app_store_url() -> None:
 def test_parse_google_play_url() -> None:
     parsed = parse_app_url("https://play.google.com/store/apps/details?id=com.foo.bar")
     assert parsed.google_play_package == "com.foo.bar"
+
+
+def test_build_app_store_url() -> None:
+    from app.services.url_parser import build_app_store_url
+
+    url = build_app_store_url("12345", "us")
+    assert url == "https://apps.apple.com/us/app/id12345"

@@ -16,6 +16,7 @@ from app.models.digest_report import DigestReport, empty_sections
 from app.models.enums import DigestStatus
 from app.prompts.app_review_digest import build_digest_prompt
 from app.services.change_detector import ChangeContext
+from app.services.notion_exporter import NotionExportError, export_digest_to_notion
 
 logger = get_logger(__name__)
 
@@ -60,9 +61,11 @@ def build_fallback_digest(ctx: ChangeContext) -> tuple[str, str, dict]:
         key=lambda r: r.rating,
     )[:5]
     for r in negatives:
+        pain = (r.body or "")[:80]
         sections["new_complaints"].append(
             {
                 "title": (r.title or r.body[:60]),
+                "pain_point": f"低分反馈：{pain}",
                 "detail": f"★{r.rating} | review_id={r.id}",
                 "evidence_review_ids": [r.id],
             }
@@ -70,9 +73,11 @@ def build_fallback_digest(ctx: ChangeContext) -> tuple[str, str, dict]:
 
     positives = [r for r in ctx.current_reviews if r.rating is not None and r.rating >= 4][:5]
     for r in positives:
+        strength = (r.body or "")[:80]
         sections["new_praise"].append(
             {
                 "title": (r.title or r.body[:60]),
+                "strength": f"用户认可：{strength}",
                 "detail": f"★{r.rating} | review_id={r.id}",
                 "evidence_review_ids": [r.id],
             }
@@ -100,15 +105,17 @@ def generate_digest(session: Session, ctx: ChangeContext) -> DigestReport:
 
     try:
         from litellm import completion
+        from app.services.external_http import llm_proxy_env
 
-        resp = completion(
-            model=settings.llm_model,
-            api_key=settings.llm_api_key,
-            api_base=settings.llm_api_base,
-            timeout=settings.llm_timeout,
-            messages=[{"role": "user", "content": prompt}],
-            response_format={"type": "json_object"},
-        )
+        with llm_proxy_env():
+            resp = completion(
+                model=settings.llm_model,
+                api_key=settings.llm_api_key,
+                api_base=settings.llm_api_base,
+                timeout=settings.llm_timeout,
+                messages=[{"role": "user", "content": prompt}],
+                response_format={"type": "json_object"},
+            )
         content = resp.choices[0].message.content or "{}"
         data = json.loads(content)
         title = data.get("title", "")
@@ -140,4 +147,11 @@ def generate_digest(session: Session, ctx: ChangeContext) -> DigestReport:
     session.commit()
     session.refresh(report)
     logger.info("周报已生成 report_id=%s app_id=%s", report.id, ctx.monitored_app_id)
+
+    if settings.notion_auto_export:
+        try:
+            export_digest_to_notion(report, session)
+        except NotionExportError as exc:
+            logger.warning("Notion 自动导出失败 report_id=%s err=%s", report.id, exc)
+
     return report

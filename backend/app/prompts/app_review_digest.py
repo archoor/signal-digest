@@ -19,8 +19,22 @@ _OUTPUT_SCHEMA = {
     "title": "",
     "summary": "",
     "top_changes": [],
-    "new_complaints": [],
-    "new_praise": [],
+    "new_complaints": [
+        {
+            "title": "投诉摘要",
+            "pain_point": "痛点/不足是什么",
+            "detail": "补充说明",
+            "evidence_review_ids": [],
+        }
+    ],
+    "new_praise": [
+        {
+            "title": "好评摘要",
+            "strength": "好在哪里",
+            "detail": "补充说明",
+            "evidence_review_ids": [],
+        }
+    ],
     "rating_movement": [],
     "release_impact": [],
     "competitor_moves": [],
@@ -36,7 +50,8 @@ _SYSTEM_RULES = """你是一名资深 App 产品分析师。
 3. 不要编造不存在的竞品变化。
 4. 每条结论都要引用对应的 evidence review id（来自输入数据的 review id）。
 5. recommended_actions 必须具体到产品、支持、增长或 ASO 动作，最多 3 条。
-6. 严格输出 JSON，结构如下，不要输出多余文字。
+6. new_praise 每条必须包含 strength 字段，说明用户认为好在哪里；new_complaints 每条必须包含 pain_point 字段，说明痛点/不足。
+7. 严格输出 JSON，结构如下，不要输出多余文字。
 """
 
 
