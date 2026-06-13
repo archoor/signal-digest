@@ -31,7 +31,10 @@ class SettingsRead(BaseModel):
     resend_api_key_set: bool
     digest_recipient_email: str | None
 
-    # 外网代理（采集、App 搜索等）
+    # 采集
+    default_country_codes: str
+    ingest_http_timeout: float
+    ingest_google_play_timeout: float
     ingest_http_proxy: str | None
 
     # 调度
@@ -39,6 +42,15 @@ class SettingsRead(BaseModel):
     daily_ingest_hour: int
     weekly_digest_weekday: int
     weekly_digest_hour: int
+
+    # Notion（周报导出，功能对接后生效）
+    notion_api_key_set: bool
+    notion_reports_database_id: str | None
+    notion_title_property: str
+    notion_status_property: str | None
+    notion_period_property: str | None
+    notion_report_id_property: str | None
+    notion_auto_export: bool
 
 
 class SettingsUpdate(BaseModel):
@@ -62,12 +74,23 @@ class SettingsUpdate(BaseModel):
     smtp_use_tls: bool | None = None
     resend_api_key: str | None = None
     digest_recipient_email: str | None = None
+    default_country_codes: str | None = None
+    ingest_http_timeout: float | None = Field(default=None, ge=1, le=300)
+    ingest_google_play_timeout: float | None = Field(default=None, ge=1, le=600)
     ingest_http_proxy: str | None = None
 
     enable_scheduler: bool | None = None
     daily_ingest_hour: int | None = Field(default=None, ge=0, le=23)
     weekly_digest_weekday: int | None = Field(default=None, ge=0, le=6)
     weekly_digest_hour: int | None = Field(default=None, ge=0, le=23)
+
+    notion_api_key: str | None = None
+    notion_reports_database_id: str | None = None
+    notion_title_property: str | None = None
+    notion_status_property: str | None = None
+    notion_period_property: str | None = None
+    notion_report_id_property: str | None = None
+    notion_auto_export: bool | None = None
 
 
 class ProxyTestRequest(BaseModel):

@@ -43,11 +43,21 @@ type FormState = {
   smtp_use_tls: boolean;
   resend_api_key: string;
   digest_recipient_email: string;
+  default_country_codes: string;
+  ingest_http_timeout: string;
+  ingest_google_play_timeout: string;
   ingest_http_proxy: string;
   enable_scheduler: boolean;
   daily_ingest_hour: string;
   weekly_digest_weekday: string;
   weekly_digest_hour: string;
+  notion_api_key: string;
+  notion_reports_database_id: string;
+  notion_title_property: string;
+  notion_status_property: string;
+  notion_period_property: string;
+  notion_report_id_property: string;
+  notion_auto_export: boolean;
 };
 
 function fromSettings(s: RuntimeSettings): FormState {
@@ -69,11 +79,21 @@ function fromSettings(s: RuntimeSettings): FormState {
     smtp_use_tls: s.smtp_use_tls,
     resend_api_key: "",
     digest_recipient_email: s.digest_recipient_email || "",
+    default_country_codes: s.default_country_codes,
+    ingest_http_timeout: String(s.ingest_http_timeout),
+    ingest_google_play_timeout: String(s.ingest_google_play_timeout),
     ingest_http_proxy: s.ingest_http_proxy || "",
     enable_scheduler: s.enable_scheduler,
     daily_ingest_hour: String(s.daily_ingest_hour),
     weekly_digest_weekday: String(s.weekly_digest_weekday),
     weekly_digest_hour: String(s.weekly_digest_hour),
+    notion_api_key: "",
+    notion_reports_database_id: s.notion_reports_database_id || "",
+    notion_title_property: s.notion_title_property,
+    notion_status_property: s.notion_status_property || "",
+    notion_period_property: s.notion_period_property || "",
+    notion_report_id_property: s.notion_report_id_property || "",
+    notion_auto_export: s.notion_auto_export,
   };
 }
 
@@ -93,16 +113,27 @@ function toUpdate(form: FormState): RuntimeSettingsUpdate {
     smtp_user: form.smtp_user.trim() || null,
     smtp_use_tls: form.smtp_use_tls,
     digest_recipient_email: form.digest_recipient_email.trim() || null,
+    default_country_codes: form.default_country_codes.trim(),
+    ingest_http_timeout: Number(form.ingest_http_timeout),
+    ingest_google_play_timeout: Number(form.ingest_google_play_timeout),
     ingest_http_proxy: form.ingest_http_proxy.trim() || null,
     enable_scheduler: form.enable_scheduler,
     daily_ingest_hour: Number(form.daily_ingest_hour),
     weekly_digest_weekday: Number(form.weekly_digest_weekday),
     weekly_digest_hour: Number(form.weekly_digest_hour),
+    notion_reports_database_id: form.notion_reports_database_id.trim() || null,
+    notion_title_property: form.notion_title_property.trim() || "Name",
+    notion_status_property: form.notion_status_property.trim() || null,
+    notion_period_property: form.notion_period_property.trim() || null,
+    notion_report_id_property: form.notion_report_id_property.trim() || null,
+    notion_auto_export: form.notion_auto_export,
   };
   if (form.llm_api_key.trim()) body.llm_api_key = form.llm_api_key.trim();
   if (form.smtp_password.trim()) body.smtp_password = form.smtp_password.trim();
   if (form.resend_api_key.trim())
     body.resend_api_key = form.resend_api_key.trim();
+  if (form.notion_api_key.trim())
+    body.notion_api_key = form.notion_api_key.trim();
   return body;
 }
 
@@ -404,11 +435,114 @@ export function RuntimeSettingsForm() {
       </Section>
 
       <Section
-        title="外网代理"
-        description="采集评论与 App 名称搜索等访问 iTunes / Google Play 时使用。留空则直连；支持 SOCKS5 / HTTP，可在 URL 中填写用户名与密码，保存后立即生效。"
+        title="Notion 导出"
+        description="周报导出到 Notion 数据库（Internal Integration）。配置保存后写入 .env，后续 Notion 功能上线即可直接使用。"
       >
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field
+            label="Integration API Key"
+            hint={
+              meta?.notion_api_key_set
+                ? "已配置。留空表示不修改。"
+                : "在 notion.so/profile/integrations 创建并复制 Secret"
+            }
+          >
+            <Input
+              type="password"
+              value={form.notion_api_key}
+              onChange={(e) => patch("notion_api_key", e.target.value)}
+              placeholder={meta?.notion_api_key_set ? "••••••••" : ""}
+              autoComplete="off"
+            />
+          </Field>
+          <Field
+            label="Reports 数据库 ID"
+            hint="数据库 URL 中 32 位 ID；需将 Integration 连接到该库"
+          >
+            <Input
+              value={form.notion_reports_database_id}
+              onChange={(e) =>
+                patch("notion_reports_database_id", e.target.value)
+              }
+              placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            />
+          </Field>
+          <Field label="标题列名" hint="Notion 数据库 Title 属性名，默认 Name">
+            <Input
+              value={form.notion_title_property}
+              onChange={(e) => patch("notion_title_property", e.target.value)}
+            />
+          </Field>
+          <Field label="Status 列名（可选）" hint="Select 类型，留空则不写入">
+            <Input
+              value={form.notion_status_property}
+              onChange={(e) => patch("notion_status_property", e.target.value)}
+            />
+          </Field>
+          <Field label="Period 列名（可选）" hint="Date 类型，留空则不写入">
+            <Input
+              value={form.notion_period_property}
+              onChange={(e) => patch("notion_period_property", e.target.value)}
+            />
+          </Field>
+          <Field label="Report ID 列名（可选）" hint="Number 类型，留空则不写入">
+            <Input
+              value={form.notion_report_id_property}
+              onChange={(e) =>
+                patch("notion_report_id_property", e.target.value)
+              }
+            />
+          </Field>
+        </div>
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={form.notion_auto_export}
+            onChange={(e) => patch("notion_auto_export", e.target.checked)}
+            className="rounded border-border"
+          />
+          生成周报后自动导出到 Notion
+        </label>
+      </Section>
+
+      <Section
+        title="采集与网络"
+        description="评论采集默认国家/超时，以及访问 iTunes / Google Play 的外网代理。留空代理则直连。"
+      >
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field
+            label="默认国家/地区"
+            hint="逗号分隔 ISO 国家码，如 us,gb,jp"
+          >
+            <Input
+              value={form.default_country_codes}
+              onChange={(e) => patch("default_country_codes", e.target.value)}
+              placeholder="us"
+            />
+          </Field>
+          <Field label="RSS / HTTP 超时（秒）" hint="App Store RSS 等请求">
+            <Input
+              type="number"
+              min={1}
+              max={300}
+              value={form.ingest_http_timeout}
+              onChange={(e) => patch("ingest_http_timeout", e.target.value)}
+            />
+          </Field>
+          <Field label="Google Play 超时（秒）" hint="Play 抓取较慢时可适当加大">
+            <Input
+              type="number"
+              min={1}
+              max={600}
+              value={form.ingest_google_play_timeout}
+              onChange={(e) =>
+                patch("ingest_google_play_timeout", e.target.value)
+              }
+            />
+          </Field>
+        </div>
         <Field
-          label="代理地址"
+          label="外网代理地址"
           hint="留空=直连。无认证：socks5://127.0.0.1:12080。带用户名密码：socks5://myuser:mypass@127.0.0.1:12080（密码含 @、: 等特殊字符需 URL 编码，如 p%40ss）"
         >
           <Input

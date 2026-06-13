@@ -26,17 +26,29 @@ FIELD_TO_ENV: dict[str, str] = {
     "smtp_use_tls": "SMTP_USE_TLS",
     "resend_api_key": "RESEND_API_KEY",
     "digest_recipient_email": "DIGEST_RECIPIENT_EMAIL",
+    "default_country_codes": "DEFAULT_COUNTRY_CODES",
+    "ingest_http_timeout": "INGEST_HTTP_TIMEOUT",
+    "ingest_google_play_timeout": "INGEST_GOOGLE_PLAY_TIMEOUT",
     "ingest_http_proxy": "INGEST_HTTP_PROXY",
     "enable_scheduler": "ENABLE_SCHEDULER",
     "daily_ingest_hour": "DAILY_INGEST_HOUR",
     "weekly_digest_weekday": "WEEKLY_DIGEST_WEEKDAY",
     "weekly_digest_hour": "WEEKLY_DIGEST_HOUR",
+    "notion_api_key": "NOTION_API_KEY",
+    "notion_reports_database_id": "NOTION_REPORTS_DATABASE_ID",
+    "notion_title_property": "NOTION_TITLE_PROPERTY",
+    "notion_status_property": "NOTION_STATUS_PROPERTY",
+    "notion_period_property": "NOTION_PERIOD_PROPERTY",
+    "notion_report_id_property": "NOTION_REPORT_ID_PROPERTY",
+    "notion_auto_export": "NOTION_AUTO_EXPORT",
 }
 
 ENV_TO_FIELD = {v: k for k, v in FIELD_TO_ENV.items()}
 
 # 密钥字段：GET 脱敏；PATCH 留空表示不修改。
-SECRET_FIELDS = frozenset({"llm_api_key", "smtp_password", "resend_api_key"})
+SECRET_FIELDS = frozenset(
+    {"llm_api_key", "smtp_password", "resend_api_key", "notion_api_key"}
+)
 
 # 可清空的字符串字段：PATCH 传 null 时写入空值。
 NULLABLE_STRING_FIELDS = frozenset(
@@ -46,10 +58,22 @@ NULLABLE_STRING_FIELDS = frozenset(
         "smtp_user",
         "digest_recipient_email",
         "ingest_http_proxy",
+        "notion_reports_database_id",
+        "notion_status_property",
+        "notion_period_property",
+        "notion_report_id_property",
     }
 )
 
 MANAGED_FIELDS = frozenset(FIELD_TO_ENV.keys())
+
+_INFRA_ENV_KEYS = (
+    "ENVIRONMENT",
+    "DEBUG",
+    "DATABASE_URL",
+    "CORS_ORIGINS",
+    "CLASSIFIER_MIN_BODY_CHARS",
+)
 
 _ENV_LINE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)=(.*)$")
 
@@ -88,7 +112,7 @@ def _apply_env_updates(updates: dict[str, str]) -> None:
     if remaining:
         if out and out[-1].strip():
             out.append("")
-        out.append("# ===== 由管理后台更新 =====")
+        out.append("# ===== 由管理后台「设置」页维护 =====")
         for key, val in remaining.items():
             out.append(f"{key}={val}")
 
@@ -140,3 +164,39 @@ def update_settings(updates: dict) -> dict:
 
     reloaded = reload_settings()
     return settings_to_public(reloaded)
+
+
+def compact_env_file() -> None:
+    """重整 .env：仅保留基础设施段 + 设置页可管理项（保留当前值）。"""
+    s = get_settings()
+    infra_values = {
+        "ENVIRONMENT": s.environment,
+        "DEBUG": _serialize_value(s.debug),
+        "DATABASE_URL": s.database_url,
+        "CORS_ORIGINS": s.cors_origins,
+        "CLASSIFIER_MIN_BODY_CHARS": _serialize_value(s.classifier_min_body_chars),
+    }
+    managed_updates = {
+        FIELD_TO_ENV[field]: _serialize_value(getattr(s, field))
+        for field in MANAGED_FIELDS
+    }
+
+    header = """# ===== 基础设施（部署/开发时手改）=====
+ENVIRONMENT={ENVIRONMENT}
+DEBUG={DEBUG}
+
+# 数据库
+DATABASE_URL={DATABASE_URL}
+
+# 前端跨域
+CORS_ORIGINS={CORS_ORIGINS}
+
+# 评论分类：过短评论不调用 LLM
+CLASSIFIER_MIN_BODY_CHARS={CLASSIFIER_MIN_BODY_CHARS}
+""".format(**infra_values)
+
+    path = env_file_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(header.rstrip() + "\n", encoding="utf-8")
+    _apply_env_updates(managed_updates)
+    reload_settings()

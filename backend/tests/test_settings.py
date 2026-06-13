@@ -21,6 +21,23 @@ def test_get_settings_includes_ingest_http_proxy() -> None:
     assert "ingest_http_proxy" in resp.json()
 
 
+def test_patch_settings_ingest_timeouts() -> None:
+    client = TestClient(create_app())
+    patch_resp = client.patch(
+        "/api/settings",
+        json={
+            "default_country_codes": "us,gb",
+            "ingest_http_timeout": 20,
+            "ingest_google_play_timeout": 45,
+        },
+    )
+    assert patch_resp.status_code == 200
+    data = patch_resp.json()
+    assert data["default_country_codes"] == "us,gb"
+    assert data["ingest_http_timeout"] == 20
+    assert data["ingest_google_play_timeout"] == 45
+
+
 def test_patch_settings_ingest_http_proxy() -> None:
     client = TestClient(create_app())
     patch_resp = client.patch(
@@ -47,6 +64,25 @@ def test_get_settings() -> None:
     assert "llm_api_key_set" in data
     assert "email_provider" in data
     assert "enable_scheduler" in data
+    assert "notion_api_key_set" in data
+    assert "notion_reports_database_id" in data
+
+
+def test_patch_settings_notion_database_id() -> None:
+    client = TestClient(create_app())
+    patch_resp = client.patch(
+        "/api/settings",
+        json={"notion_reports_database_id": "abc123def456"},
+    )
+    assert patch_resp.status_code == 200
+    assert patch_resp.json()["notion_reports_database_id"] == "abc123def456"
+
+    clear_resp = client.patch(
+        "/api/settings",
+        json={"notion_reports_database_id": None},
+    )
+    assert clear_resp.status_code == 200
+    assert clear_resp.json()["notion_reports_database_id"] in (None, "")
 
 
 def test_patch_settings_llm_model() -> None:

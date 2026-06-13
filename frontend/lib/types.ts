@@ -232,11 +232,21 @@ export interface RuntimeSettings {
   smtp_use_tls: boolean;
   resend_api_key_set: boolean;
   digest_recipient_email: string | null;
+  default_country_codes: string;
+  ingest_http_timeout: number;
+  ingest_google_play_timeout: number;
   ingest_http_proxy: string | null;
   enable_scheduler: boolean;
   daily_ingest_hour: number;
   weekly_digest_weekday: number;
   weekly_digest_hour: number;
+  notion_api_key_set: boolean;
+  notion_reports_database_id: string | null;
+  notion_title_property: string;
+  notion_status_property: string | null;
+  notion_period_property: string | null;
+  notion_report_id_property: string | null;
+  notion_auto_export: boolean;
 }
 
 export type RuntimeSettingsUpdate = Partial<{
@@ -257,11 +267,21 @@ export type RuntimeSettingsUpdate = Partial<{
   smtp_use_tls: boolean;
   resend_api_key: string;
   digest_recipient_email: string | null;
+  default_country_codes: string;
+  ingest_http_timeout: number;
+  ingest_google_play_timeout: number;
   ingest_http_proxy: string | null;
   enable_scheduler: boolean;
   daily_ingest_hour: number;
   weekly_digest_weekday: number;
   weekly_digest_hour: number;
+  notion_api_key: string;
+  notion_reports_database_id: string | null;
+  notion_title_property: string;
+  notion_status_property: string | null;
+  notion_period_property: string | null;
+  notion_report_id_property: string | null;
+  notion_auto_export: boolean;
 }>;
 
 export interface ProxyCheckResult {

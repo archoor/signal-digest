@@ -97,6 +97,7 @@ signal-digest/
 ```powershell
 cd backend
 copy .env.example .env
+# .env 仅保留数据库、跨域等基础设施；LLM / 邮件 / Notion / 代理 / 调度在管理后台「设置」页配置
 uv sync
 uv run uvicorn app.main:app --reload
 ```
@@ -152,7 +153,7 @@ Invoke-RestMethod -Method Post http://127.0.0.1:8000/api/apps -ContentType 'appl
 | Digests | GET | `/api/digests` / `/api/digests/{id}` |
 | Digests | PATCH | `/api/digests/{id}`（status/title/summary；支持审核流转）|
 | Digests | POST | `/api/digests/generate` / `/api/digests/{id}/send` |
-| Settings | GET / PATCH | `/api/settings`（LLM / 邮件 / 调度；持久化到 `.env`）|
+| Settings | GET / PATCH | `/api/settings`（LLM / 邮件 / Notion / 代理 / 调度；持久化到 `.env`）|
 
 前端跨域由 `.env` 的 `CORS_ORIGINS` 控制，默认放行 `http://localhost:3000`。
 
