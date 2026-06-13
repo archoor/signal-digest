@@ -8,6 +8,7 @@ from app.models.enums import Intent, Platform, Priority, Sentiment, SourceKind
 from app.services.review_classifier import (
     _safe_enum,
     classify_review_rule,
+    is_placeholder_summary,
     rule_based_sentiment,
 )
 
@@ -39,3 +40,19 @@ def test_classify_review_rule_low_rating_is_p1() -> None:
     insight = classify_review_rule(review)
     assert insight.sentiment == Sentiment.NEGATIVE
     assert insight.priority == Priority.P1
+    assert insight.summary is None  # 过短，等待 LLM enrich 前不填占位
+
+
+def test_classify_review_rule_high_rating_summary() -> None:
+    review = AppReview(
+        id=2,
+        source_kind=SourceKind.OWN,
+        platform=Platform.APP_STORE,
+        external_review_id="x2",
+        rating=5,
+        body="界面设计很清爽，功能完整，响应速度也快，整体体验非常好",
+        source_created_at=utcnow(),
+    )
+    insight = classify_review_rule(review)
+    assert insight.sentiment == Sentiment.POSITIVE
+    assert is_placeholder_summary(insight.summary)

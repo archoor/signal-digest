@@ -17,7 +17,7 @@ class ReviewInsight(SQLModel, table=True):
     __tablename__ = "review_insight"
 
     id: int | None = Field(default=None, primary_key=True)
-    review_id: int = Field(foreign_key="app_review.id", index=True)
+    review_id: int = Field(foreign_key="app_review.id", index=True, unique=True)
 
     sentiment: Sentiment
     intent: Intent
